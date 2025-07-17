@@ -159,37 +159,58 @@ def normalize_video(
     if h % 2 != 0:
         h += 1
 
+    # 确保时长不会被错误截断
+    actual_duration = min(max_time, in_metadata.duration_sec or max_time)
+    
     ffmpeg = shutil.which("ffmpeg")
     cmd = [
         ffmpeg,
-        "-threads",
-        f"{FFMPEG_NUM_THREADS}",  # global threads
-        "-ss",
-        f"{seek_t:.2f}",
-        "-t",
-        f"{max_time:.2f}",
-        "-i",
-        in_path,
-        "-threads",
-        f"{FFMPEG_NUM_THREADS}",  # decode (or filter..?) threads
-        "-vf",
-        f"fps={fps},scale={w}:{h},setsar=1:1",
-        "-c:v",
-        codec,
-        "-crf",
-        f"{crf}",
-        "-pix_fmt",
-        "yuv420p",
-        "-threads",
-        f"{FFMPEG_NUM_THREADS}",  # encode threads
-        out_path,
+        "-threads", f"{FFMPEG_NUM_THREADS}",
+        "-ss", f"{seek_t:.3f}",  # 使用更精确的时间戳
+        "-t", f"{actual_duration:.3f}",  # 使用实际时长
+        "-i", in_path,
+        "-c:v", codec,
+        "-profile:v", "baseline",
+        "-level", "3.0",
+        "-crf", f"{crf}",
+        "-preset", "medium",
+        "-g", "48",  # 关键帧间隔
+        "-keyint_min", "24",
+        "-vf", f"fps={fps},scale={w}:{h},setsar=1:1",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-avoid_negative_ts", "make_zero",  # 避免负时间戳
+        "-fflags", "+genpts",  # 生成时间戳
+        "-threads", f"{FFMPEG_NUM_THREADS}",
         "-y",
+        out_path,
     ]
+    
     if verbose:
-        print(" ".join(cmd))
+        print(f"FFmpeg command: {' '.join(cmd)}")
+        print(f"Input duration: {in_metadata.duration_sec}, Output duration: {actual_duration}")
 
-    subprocess.call(
-        cmd,
-        stdout=None if verbose else subprocess.DEVNULL,
-        stderr=None if verbose else subprocess.DEVNULL,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE if not verbose else None,
+            stderr=subprocess.PIPE if not verbose else None,
+            check=True,
+            timeout=300
+        )
+        
+        # 验证输出文件
+        if os.path.exists(out_path):
+            out_metadata = get_video_metadata(out_path)
+            if verbose:
+                print(f"Output file duration: {out_metadata.duration_sec}")
+                print(f"Output file frames: {out_metadata.num_video_frames}")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg failed: {e}")
+        if e.stderr:
+            print(f"Error: {e.stderr.decode()}")
+        raise
+    except subprocess.TimeoutExpired:
+        print("FFmpeg timed out")
+        raise
