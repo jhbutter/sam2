@@ -130,7 +130,7 @@ def normalize_video(
     in_metadata: Optional[VideoMetadata],
     codec: str = "libx264",
     crf: int = 23,
-    fps: int = 24,
+    fps: int = None,  # 改为None，表示保持原帧率
     verbose: bool = False,
 ):
     if in_metadata is None:
@@ -163,6 +163,21 @@ def normalize_video(
     actual_duration = min(max_time, in_metadata.duration_sec or max_time)
     
     ffmpeg = shutil.which("ffmpeg")
+    
+    # 使用原视频帧率而不是固定值
+    if fps is None and in_metadata and in_metadata.fps:
+        fps = int(in_metadata.fps)
+    elif fps is None:
+        fps = 24  # 只有在无法获取原帧率时才使用默认值
+    
+    # 修改FFmpeg命令，只在需要时才改变帧率
+    if in_metadata and in_metadata.fps and abs(in_metadata.fps - fps) < 0.1:
+        # 帧率相同，不需要转换
+        vf_filter = f"scale={w}:{h},setsar=1:1"
+    else:
+        # 需要转换帧率
+        vf_filter = f"fps={fps},scale={w}:{h},setsar=1:1"
+    
     cmd = [
         ffmpeg,
         "-threads", f"{FFMPEG_NUM_THREADS}",
