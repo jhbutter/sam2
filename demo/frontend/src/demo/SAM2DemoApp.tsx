@@ -15,8 +15,6 @@
  */
 import '@/assets/scss/App.scss';
 import ErrorReport from '@/common/error/ErrorReport';
-import DemoErrorFallback from '@/demo/DemoErrorFallback';
-import DemoSuspenseFallback from '@/demo/DemoSuspenseFallback';
 import RelayEnvironmentProvider from '@/graphql/RelayEnvironmentProvider';
 import RootLayout from '@/layouts/RootLayout';
 import SAM2DemoPage from '@/routes/DemoPageWrapper';
@@ -28,9 +26,7 @@ export default function DemoAppWrapper() {
   const {settings} = useSettingsContext();
   return (
     <RelayEnvironmentProvider
-      endpoint={settings.videoAPIEndpoint}
-      suspenseFallback={<DemoSuspenseFallback />}
-      errorFallback={DemoErrorFallback}>
+      endpoint={settings.videoAPIEndpoint}>
       <DemoApp />
     </RelayEnvironmentProvider>
   );
