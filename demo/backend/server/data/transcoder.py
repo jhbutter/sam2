@@ -41,22 +41,24 @@ def transcode(
 ):
     codec = os.environ.get("VIDEO_ENCODE_CODEC", "libx264")
     crf = int(os.environ.get("VIDEO_ENCODE_CRF", "23"))
-    fps = int(os.environ.get("VIDEO_ENCODE_FPS", "24"))
-    max_w = int(os.environ.get("VIDEO_ENCODE_MAX_WIDTH", "1280"))
-    max_h = int(os.environ.get("VIDEO_ENCODE_MAX_HEIGHT", "720"))
+    # 移除fps环境变量，使用原视频帧率
+    # fps = int(os.environ.get("VIDEO_ENCODE_FPS", "24"))
+    # 移除分辨率限制环境变量，使用原视频分辨率
+    # max_w = int(os.environ.get("VIDEO_ENCODE_MAX_WIDTH", "1280"))
+    # max_h = int(os.environ.get("VIDEO_ENCODE_MAX_HEIGHT", "720"))
     verbose = ast.literal_eval(os.environ.get("VIDEO_ENCODE_VERBOSE", "False"))
 
     normalize_video(
         in_path=in_path,
         out_path=out_path,
-        max_w=max_w,
-        max_h=max_h,
+        max_w=None,  # 不限制宽度
+        max_h=None,  # 不限制高度
         seek_t=seek_t,
         max_time=duration_time_sec,
         in_metadata=in_metadata,
         codec=codec,
         crf=crf,
-        fps=fps,
+        fps=None,  # 使用原视频帧率
         verbose=verbose,
     )
 
@@ -123,14 +125,14 @@ def get_video_metadata(path: str) -> VideoMetadata:
 def normalize_video(
     in_path: str,
     out_path: str,
-    max_w: int,
-    max_h: int,
+    max_w: Optional[int],  # 改为可选参数
+    max_h: Optional[int],  # 改为可选参数
     seek_t: float,
     max_time: float,
     in_metadata: Optional[VideoMetadata],
     codec: str = "libx264",
     crf: int = 23,
-    fps: int = None,  # 改为None，表示保持原帧率
+    fps: Optional[float] = None,  # 改为可选的浮点数
     verbose: bool = False,
 ):
     if in_metadata is None:
@@ -142,18 +144,8 @@ def normalize_video(
     assert w is not None, "width not available"
     assert h is not None, "height not available"
 
-    # rescale to max_w:max_h if needed & preserve aspect ratio
-    r = w / h
-    if r < 1:
-        h = min(720, h)
-        w = h * r
-    else:
-        w = min(1280, w)
-        h = w / r
-
-    # h264 cannot encode w/ odd dimensions
-    w = int(w)
-    h = int(h)
+    # 使用原视频分辨率，不进行缩放限制
+    # 只确保尺寸为偶数（H.264编码要求）
     if w % 2 != 0:
         w += 1
     if h % 2 != 0:
@@ -162,21 +154,17 @@ def normalize_video(
     # 确保时长不会被错误截断
     actual_duration = min(max_time, in_metadata.duration_sec or max_time)
     
-    ffmpeg = shutil.which("ffmpeg")
+    # ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = "/usr/bin/ffmpeg"
     
-    # 使用原视频帧率而不是固定值
+    # 使用原视频帧率
     if fps is None and in_metadata and in_metadata.fps:
-        fps = int(in_metadata.fps)
+        fps = float(in_metadata.fps)  # 保持浮点精度
     elif fps is None:
-        fps = 24  # 只有在无法获取原帧率时才使用默认值
+        fps = 24.0  # 仅作为最后的备用值
     
-    # 修改FFmpeg命令，只在需要时才改变帧率
-    if in_metadata and in_metadata.fps and abs(in_metadata.fps - fps) < 0.1:
-        # 帧率相同，不需要转换
-        vf_filter = f"scale={w}:{h},setsar=1:1"
-    else:
-        # 需要转换帧率
-        vf_filter = f"fps={fps},scale={w}:{h},setsar=1:1"
+    # 确保FFmpeg命令使用精确的帧率
+    vf_filter = f"fps={fps:.3f},scale={w}:{h},setsar=1:1"
     
     cmd = [
         ffmpeg,
@@ -204,6 +192,7 @@ def normalize_video(
     if verbose:
         print(f"FFmpeg command: {' '.join(cmd)}")
         print(f"Input duration: {in_metadata.duration_sec}, Output duration: {actual_duration}")
+        print(f"Using original resolution: {w}x{h}, fps: {fps}")
 
     try:
         result = subprocess.run(
@@ -220,6 +209,7 @@ def normalize_video(
             if verbose:
                 print(f"Output file duration: {out_metadata.duration_sec}")
                 print(f"Output file frames: {out_metadata.num_video_frames}")
+                print(f"Output file resolution: {out_metadata.width}x{out_metadata.height}")
         
     except subprocess.CalledProcessError as e:
         print(f"FFmpeg failed: {e}")
